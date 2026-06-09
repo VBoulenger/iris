@@ -103,6 +103,9 @@
         <li class="toolbutton icon_button" id='tb_tool_eraser' onclick="set_tool('eraser');">
             <img src={{url_for('segmentation.static', filename='icons/eraser.png')}} class="icon" />
         </li>
+        <li class="toolbutton icon_button" id='tb_tool_fill' onclick="set_tool('fill');">
+            <img src="{{ url_for('segmentation.static', filename='icons/fill.png') }}" class="icon" />
+        </li>
         <li class="toolbutton icon_button" id='tb_reset_mask' onclick='dialogue_reset_mask();'>
             <img src={{url_for('segmentation.static', filename='icons/reset_mask.png')}} class="icon" />
         </li>

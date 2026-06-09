@@ -39,6 +39,10 @@ let commands = {
         "key": "D",
         "description": "Draw pixels on the mask"
     },
+    "tool_fill": {
+        "key": "T",
+        "description": "Flood fill a region with the current class"
+    },
     "tool_eraser": {
         "key": "E",
         "description": "Erase previously drawn pixels"
@@ -262,6 +266,8 @@ function key_down(event){
         }
     } else if (key == "KeyD"){
         set_tool("draw");
+    } else if (key == "KeyT") {
+        set_tool("fill");
     } else if (key == "KeyE"){
         set_tool("eraser");
     } else if (key == "KeyW"){
@@ -389,7 +395,7 @@ function mouse_move(event){
     }
 
     // mouse left button must be pressed to draw
-    if (event.buttons == 1 && vars.tool.type != 'move'){
+    if (event.buttons == 1 && vars.tool.type != 'move' && vars.tool.type != 'fill'){
         user_draws_on_mask();
     }
 
@@ -401,7 +407,11 @@ function mouse_down(event){
     update_cursor_coords(this, event);
 
     if (event.buttons == 1 && vars.tool.type != 'move'){
-        user_draws_on_mask();
+        if (vars.tool.type === 'fill'){
+            flood_fill();  // single click, no drag needed
+        } else {
+            user_draws_on_mask();
+        }
         vars.drag_start = null;
     } else if (
         event.buttons == 2
@@ -726,6 +736,86 @@ function user_draws_on_mask(){
     vars.show_dialogue_before_next_image = true;
 }
 
+function flood_fill() {
+    const width = vars.mask_shape[0];
+    const height = vars.mask_shape[1];
+    const x0 = vars.cursor_image[0] - vars.mask_area[0];
+    const y0 = vars.cursor_image[1] - vars.mask_area[1];
+
+    // Bounds check
+    if (x0 < 0 || x0 >= width || y0 < 0 || y0 >= height) return;
+
+    const target_class = vars.mask[y0 * width + x0];
+
+    // Nothing to do if already the current class
+    if (target_class === vars.current_class) return;
+
+    // BFS
+    const queue = [[x0, y0]];
+    const visited = new Uint8Array(width * height);
+    visited[y0 * width + x0] = 1;
+
+    let min_x = x0, max_x = x0, min_y = y0, max_y = y0;
+
+    while (queue.length > 0) {
+        const [x, y] = queue.shift();
+        const idx = y * width + x;
+
+        vars.mask[idx] = vars.current_class;
+        vars.user_mask[idx] = 1;
+
+        min_x = Math.min(min_x, x);
+        max_x = Math.max(max_x, x);
+        min_y = Math.min(min_y, y);
+        max_y = Math.max(max_y, y);
+
+        const neighbors = [
+            [x - 1, y], [x + 1, y],
+            [x, y - 1], [x, y + 1]
+        ];
+        for (const [nx, ny] of neighbors) {
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+            const nidx = ny * width + nx;
+            if (visited[nidx]) continue;
+            if (vars.mask[nidx] !== target_class) continue;
+            visited[nidx] = 1;
+            queue.push([nx, ny]);
+        }
+    }
+
+    // Redraw the affected region on the hidden mask
+    const drawing_area = [min_x, min_y, max_x - min_x + 1, max_y - min_y + 1];
+    // Redraw the affected region on the hidden mask — pixel by pixel
+    if (vars.mask_type === 'final' || vars.mask_type === 'user') {
+        const hidden_ctx = vars.hidden_mask.getContext('2d');
+        const drawing_area = [min_x, min_y, max_x - min_x + 1, max_y - min_y + 1];
+    
+        // Get the current pixel data for the bounding box
+        const img_data = hidden_ctx.getImageData(...drawing_area);
+    
+        for (let y = min_y; y <= max_y; y++) {
+            for (let x = min_x; x <= max_x; x++) {
+                if (!visited[(y * width) + x]) continue;
+            
+                const colour = get_class_colour(vars.mask[y * width + x]);
+                const px = ((y - min_y) * (max_x - min_x + 1) + (x - min_x)) * 4;
+                img_data.data[px]     = colour[0];
+                img_data.data[px + 1] = colour[1];
+                img_data.data[px + 2] = colour[2];
+                img_data.data[px + 3] = colour[3] ?? 255;
+            }
+        }
+    
+        hidden_ctx.putImageData(img_data, min_x, min_y);
+        render_mask(drawing_area);
+    }
+
+    update_drawn_pixels();
+    discard_future();
+    update_history();
+    vars.show_dialogue_before_next_image = true;
+}
+
 function reload_hidden_mask(){
     /*Update hidden mask on a offscreen canvas*/
     let ctx = vars.hidden_mask.getContext('2d');
@@ -771,6 +861,18 @@ function get_current_class_colour(){
         }
     } else { //  if (vars.mask_type == "user"){
         return vars.classes[vars.current_class].colour;
+    }
+}
+
+function get_class_colour(class_id) {
+    if (vars.mask_type === 'user') {
+        if ('user_colour' in vars.classes[class_id]) {
+            return vars.classes[class_id].user_colour;
+        } else {
+            return vars.classes[class_id].colour;
+        }
+    } else {
+        return vars.classes[class_id].colour;
     }
 }
 
