@@ -1,19 +1,30 @@
-FROM python:3.8-slim-buster
+FROM python:3.11-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update --fix-missing 
+# 1. Install system dependencies (including C compilers needed for heavy libs)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gdal-bin \
+    libgdal-dev \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y gdal-bin libgdal-dev 
+# 2. Required for rasterio/GDAL to find system libraries properly
+ENV CPLUS_INCLUDE_PATH=/usr/include/gdal
+ENV C_INCLUDE_PATH=/usr/include/gdal
 
-RUN python -m pip install --upgrade pip
+# 3. Install uv automatically using its official installer
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-COPY requirements.txt /requirements.txt
+WORKDIR /app
 
-RUN pip install --no-cache-dir -r /requirements.txt
+# 4. Leverage Docker caching for dependencies
+COPY requirements.txt .
+RUN uv pip install --system --no-cache -r requirements.txt
 
-COPY . /app/
-
-RUN cd /app/ && python setup.py install
+# 5. Copy and install the actual application
+COPY . .
+RUN uv pip install --system --editable .
 
 ENTRYPOINT ["iris"]
